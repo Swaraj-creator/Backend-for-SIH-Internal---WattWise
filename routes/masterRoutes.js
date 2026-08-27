@@ -5,7 +5,7 @@ import {
     getMasters,
     getMaster,
     deleteMaster,
-    getMasterConfig
+    updateMasterConfig
 } from "../controllers/masterController.js";
 
 const router = express.Router();
@@ -14,6 +14,6 @@ router.post("/", createMaster);
 router.get("/", getMasters);
 router.get("/:masterId", getMaster);
 router.delete("/:masterId", deleteMaster);
-router.put("/config/:masterId", getMasterConfig);
+router.put("/config/:masterId", updateMasterConfig);
 
 export default router;

@@ -116,19 +116,141 @@ export const deleteMaster = async (req, res) => {
 
 
 
+
+
 // ============================================================
-// GET CONFIGURATION FOR ESP
+// WEBSITE → BACKEND
+// PUT /api/masters/config/:masterId
 // ============================================================
-//
+
+export const updateMasterConfig = async (req, res) => {
+
+    try {
+
+        const { masterId } = req.params;
+
+        const {
+            wifi,
+            espNow,
+            configSyncInterval
+        } = req.body;
+
+
+        const master =
+            await Master.findOne({
+                masterId
+            });
+
+
+        if (!master) {
+
+            return res.status(404).json({
+
+                status: "error",
+
+                message: "Master not found"
+
+            });
+        }
+
+
+        // ----------------------------------------------------
+        // WIFI
+        // ----------------------------------------------------
+
+        if (wifi) {
+
+            master.wifi = {
+
+                ssid:
+                    wifi.ssid ??
+                    master.wifi?.ssid,
+
+                password:
+                    wifi.password ??
+                    master.wifi?.password
+
+            };
+        }
+
+
+        // ----------------------------------------------------
+        // ESPNOW
+        // ----------------------------------------------------
+
+        if (espNow) {
+
+            master.espNow = {
+
+                channel:
+                    espNow.channel ??
+                    master.espNow?.channel,
+
+                slave1MAC:
+                    espNow.slave1MAC ??
+                    master.espNow?.slave1MAC,
+
+                slave2MAC:
+                    espNow.slave2MAC ??
+                    master.espNow?.slave2MAC
+
+            };
+        }
+
+
+        // ----------------------------------------------------
+        // CONFIG SYNC INTERVAL
+        // ----------------------------------------------------
+
+        if (
+            configSyncInterval !== undefined
+        ) {
+
+            master.configSyncInterval =
+                configSyncInterval;
+        }
+
+
+        await master.save();
+
+
+        return res.status(200).json({
+
+            status: "success",
+
+            message:
+                "Master configuration updated",
+
+            masterId:
+                master.masterId
+
+        });
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Update config error:",
+            error
+        );
+
+
+        return res.status(500).json({
+
+            status: "error",
+
+            message:
+                "Failed to update configuration"
+
+        });
+    }
+};
+
+
+// ============================================================
+// ESP → BACKEND
 // POST /api/masters/config/:masterId
-//
-// The ESP calls this endpoint periodically.
-//
-// The controller:
-// 1. Finds the master
-// 2. Checks whether it is revoked
-// 3. Returns the stored configuration
-//
 // ============================================================
 
 export const getMasterConfig = async (req, res) => {
@@ -138,14 +260,15 @@ export const getMasterConfig = async (req, res) => {
         const { masterId } = req.params;
 
 
-        // ----------------------------------------------------
-        // FIND MASTER
-        // ----------------------------------------------------
+        const master =
+            await Master.findOne({
+                masterId
+            });
 
-        const master = await Master.findOne({
-            masterId
-        });
 
+        // ----------------------------------------------------
+        // MASTER DELETED
+        // ----------------------------------------------------
 
         if (!master) {
 
@@ -153,27 +276,31 @@ export const getMasterConfig = async (req, res) => {
 
                 status: "revoked",
 
-                message: "Master not found"
+                message:
+                    "Master not found"
 
             });
         }
 
 
         // ----------------------------------------------------
-        // RETURN CONFIGURATION
+        // RETURN CONFIG
         // ----------------------------------------------------
 
         return res.status(200).json({
 
             status: "active",
 
-            masterId: master.masterId,
+            masterId:
+                master.masterId,
 
             wifi: {
 
-                ssid: master.wifi?.ssid || "",
+                ssid:
+                    master.wifi?.ssid || "",
 
-                password: master.wifi?.password || ""
+                password:
+                    master.wifi?.password || ""
 
             },
 
@@ -200,7 +327,7 @@ export const getMasterConfig = async (req, res) => {
     catch (error) {
 
         console.error(
-            "Config controller error:",
+            "Get config error:",
             error
         );
 
@@ -210,7 +337,7 @@ export const getMasterConfig = async (req, res) => {
             status: "error",
 
             message:
-                "Failed to retrieve master configuration"
+                "Failed to retrieve configuration"
 
         });
     }
