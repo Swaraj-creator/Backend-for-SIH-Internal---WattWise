@@ -115,8 +115,6 @@ export const deleteMaster = async (req, res) => {
 };
 
 
-import Master from "../models/Master.js";
-
 
 // ============================================================
 // GET CONFIGURATION FOR ESP
