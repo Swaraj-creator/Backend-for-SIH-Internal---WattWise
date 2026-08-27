@@ -14,6 +14,6 @@ router.post("/", createMaster);
 router.get("/", getMasters);
 router.get("/:masterId", getMaster);
 router.delete("/:masterId", deleteMaster);
-router.put("/config/:masterId", updateMasterConfig);
+router.post("/config/:masterId", updateMasterConfig);
 
 export default router;
