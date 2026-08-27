@@ -4,7 +4,7 @@ import { getTelemetry, postTelemetry, syncTelemetry } from "../controllers/telem
 const router = express.Router();
 
 router.get("/", getTelemetry);
-router.post("/", postTelemetry);
+router.post("/data", postTelemetry);
 router.post("/sync", syncTelemetry);
 
 export default router;

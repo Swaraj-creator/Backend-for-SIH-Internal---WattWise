@@ -113,3 +113,107 @@ export const deleteMaster = async (req, res) => {
         });
     }
 };
+
+
+import Master from "../models/Master.js";
+
+
+// ============================================================
+// GET CONFIGURATION FOR ESP
+// ============================================================
+//
+// POST /api/masters/config/:masterId
+//
+// The ESP calls this endpoint periodically.
+//
+// The controller:
+// 1. Finds the master
+// 2. Checks whether it is revoked
+// 3. Returns the stored configuration
+//
+// ============================================================
+
+export const getMasterConfig = async (req, res) => {
+
+    try {
+
+        const { masterId } = req.params;
+
+
+        // ----------------------------------------------------
+        // FIND MASTER
+        // ----------------------------------------------------
+
+        const master = await Master.findOne({
+            masterId
+        });
+
+
+        if (!master) {
+
+            return res.status(404).json({
+
+                status: "revoked",
+
+                message: "Master not found"
+
+            });
+        }
+
+
+        // ----------------------------------------------------
+        // RETURN CONFIGURATION
+        // ----------------------------------------------------
+
+        return res.status(200).json({
+
+            status: "active",
+
+            masterId: master.masterId,
+
+            wifi: {
+
+                ssid: master.wifi?.ssid || "",
+
+                password: master.wifi?.password || ""
+
+            },
+
+            espNow: {
+
+                channel:
+                    master.espNow?.channel || 11,
+
+                slave1MAC:
+                    master.espNow?.slave1MAC || "",
+
+                slave2MAC:
+                    master.espNow?.slave2MAC || ""
+
+            },
+
+            configSyncInterval:
+                master.configSyncInterval || 60000
+
+        });
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Config controller error:",
+            error
+        );
+
+
+        return res.status(500).json({
+
+            status: "error",
+
+            message:
+                "Failed to retrieve master configuration"
+
+        });
+    }
+};
