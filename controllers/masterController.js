@@ -75,10 +75,18 @@ export const registerMasterDevice = async (req, res, next) => {
             return error(res, 400, "masterId and userId are required");
         }
 
-        if (await Master.exists({ masterId })) {
-            return error(res, 409, "Master already exists");
+        // Check if master already exists
+        const existing = await Master.findOne({ masterId });
+        if (existing) {
+            // If it exists with the same userId, reuse it
+            if (existing.userId.toString() === userId || existing.userId === userId) {
+                return res.status(200).json({ success: true, data: existing, message: "Master already registered" });
+            }
+            // If it exists with a different userId, reject
+            return error(res, 409, "Master ID already owned by another user");
         }
 
+        // Create new master
         const master = await Master.create({ masterId, name, userId });
         res.status(201).json({ success: true, data: master });
     } catch (err) { next(err); }
