@@ -1,167 +1,82 @@
-import Slave from "../models/Slave.js";
 import Master from "../models/Master.js";
+import Slave from "../models/Slave.js";
 
+const cleanText = (value) => typeof value === "string" ? value.trim() : "";
+const error = (res, status, message) => res.status(status).json({ success: false, message });
+const ownedMaster = (masterId, userId) => Master.findOne({ masterId, userId });
 
-export const createSlave = async (req, res) => {
+export const getSlaves = async (req, res, next) => {
     try {
-        const {
-            slaveId,
-            masterId,
-            type,
-            name
-        } = req.body;
-
-        if (!slaveId || !masterId || !type || !name) {
-            return res.status(400).json({
-                success: false,
-                message: "slaveId, masterId, type and name are required"
-            });
-        }
-
-        // Check whether Master exists
-        const master = await Master.findOne({ masterId });
-
-        if (!master) {
-            return res.status(404).json({
-                success: false,
-                message: "Master not found"
-            });
-        }
-
-        // Check duplicate Slave
-        const existingSlave = await Slave.findOne({ slaveId });
-
-        if (existingSlave) {
-            return res.status(409).json({
-                success: false,
-                message: "Slave already exists"
-            });
-        }
-
-        const slave = await Slave.create({
-            slaveId,
-            masterId,
-            type,
-            name
-        });
-
-        res.status(201).json({
-            success: true,
-            message: "Slave created successfully",
-            data: slave
-        });
-
-    } catch (error) {
-        console.error("Error creating slave:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to create slave"
-        });
-    }
+        const masters = await Master.find({ userId: req.user.userId }).select("masterId");
+        const slaves = await Slave.find({ masterId: { $in: masters.map(({ masterId }) => masterId) } }).sort({ slaveId: 1 });
+        res.json({ success: true, data: slaves });
+    } catch (err) { next(err); }
 };
 
-
-
-export const getSlaves = async (req, res) => {
+export const getSlavesByUserId = async (req, res, next) => {
     try {
-        const slaves = await Slave.find()
-            .sort({ slaveId: 1 });
+        const { userId } = req.params;
+        if (!userId) return error(res, 400, "userId is required");
 
-        res.status(200).json({
-            success: true,
-            data: slaves
-        });
-    } catch (error) {
-        console.error("Error fetching slaves:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch slaves"
-        });
-    }
+        const masters = await Master.find({ userId }).select("masterId");
+        const slaves = await Slave.find({ masterId: { $in: masters.map(({ masterId }) => masterId) } }).sort({ slaveId: 1 });
+        res.json({ success: true, data: slaves });
+    } catch (err) { next(err); }
 };
 
-
-
-export const getSlave = async (req, res) => {
+export const getSlave = async (req, res, next) => {
     try {
-        const { slaveId } = req.params;
-        const slave = await Slave.findOne({
-            slaveId
-        });
+        const slave = await Slave.findOne({ slaveId: req.params.slaveId });
+        if (!slave || !(await ownedMaster(slave.masterId, req.user.userId))) return error(res, 404, "Slave not found");
+        res.json({ success: true, data: slave });
+    } catch (err) { next(err); }
+};
 
-        if (!slave) {
-            return res.status(404).json({
-                success: false,
-                message: "Slave not found"
-            });
+export const createSlave = async (req, res, next) => {
+    try {
+        const slaveId = cleanText(req.body.slaveId);
+        const masterId = cleanText(req.body.masterId);
+        const name = cleanText(req.body.name);
+        const { type } = req.body;
+        if (!slaveId || !masterId || !name || !["motion", "power"].includes(type)) {
+            return error(res, 400, "slaveId, masterId, a valid type, and name are required");
         }
+        if (!(await ownedMaster(masterId, req.user.userId))) return error(res, 404, "Master not found");
+        if (await Slave.exists({ slaveId })) return error(res, 409, "Slave already exists");
 
-        res.status(200).json({
-            success: true,
-            data: slave
-        });
-
-    } catch (error) {
-        console.error("Error fetching slave:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch slave"
-        });
-    }
+        const slave = await Slave.create({ slaveId, masterId, type, name });
+        res.status(201).json({ success: true, data: slave });
+    } catch (err) { next(err); }
 };
 
-
-
-export const getSlavesByMaster = async (req, res) => {
+export const updateSlave = async (req, res, next) => {
     try {
-        const { masterId } = req.params;
-        const slaves = await Slave.find({
-            masterId
-        });
+        const slave = await Slave.findOne({ slaveId: req.params.slaveId });
+        if (!slave || !(await ownedMaster(slave.masterId, req.user.userId))) return error(res, 404, "Slave not found");
 
-        res.status(200).json({
-            success: true,
-            data: slaves
-        });
-
-    } catch (error) {
-        console.error(
-            "Error fetching slaves for master:",
-            error
-        );
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch slaves"
-        });
-    }
-};
-
-
-
-export const deleteSlave = async (req, res) => {
-    try {
-        const { slaveId } = req.params;
-        const slave = await Slave.findOneAndDelete({
-            slaveId
-        });
-
-        if (!slave) {
-            return res.status(404).json({
-                success: false,
-                message: "Slave not found"
-            });
+        const updates = {};
+        if (Object.hasOwn(req.body, "name")) {
+            const name = cleanText(req.body.name);
+            if (!name) return error(res, 400, "name must be a non-empty string");
+            updates.name = name;
         }
+        if (Object.hasOwn(req.body, "type")) {
+            if (!["motion", "power"].includes(req.body.type)) return error(res, 400, "type must be motion or power");
+            updates.type = req.body.type;
+        }
+        if (!Object.keys(updates).length) return error(res, 400, "Provide name or type to update");
 
-        res.status(200).json({
-            success: true,
-            message: "Slave deleted successfully"
-        });
+        Object.assign(slave, updates);
+        await slave.save();
+        res.json({ success: true, data: slave });
+    } catch (err) { next(err); }
+};
 
-    } catch (error) {
-        console.error("Error deleting slave:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to delete slave"
-        });
-    }
+export const deleteSlave = async (req, res, next) => {
+    try {
+        const slave = await Slave.findOne({ slaveId: req.params.slaveId });
+        if (!slave || !(await ownedMaster(slave.masterId, req.user.userId))) return error(res, 404, "Slave not found");
+        await slave.deleteOne();
+        res.json({ success: true, message: "Slave deleted" });
+    } catch (err) { next(err); }
 };

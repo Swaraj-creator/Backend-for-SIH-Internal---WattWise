@@ -7,6 +7,14 @@ export const setupTelemetrySocket = (wss) => {
 
         clients.add(ws);
 
+        ws.on("message", (message) => {
+            try {
+                JSON.parse(message.toString());
+            } catch {
+                ws.send(JSON.stringify({ type: "error", message: "Malformed WebSocket message" }));
+            }
+        });
+
         ws.on("close", () => {
             console.log("Frontend WebSocket disconnected");
             clients.delete(ws);
@@ -28,8 +36,10 @@ export const broadcastTelemetry = (data) => {
     });
 
     for (const client of clients) {
-        if (client.readyState === 1) {
-            client.send(message);
+        if (client.readyState === client.OPEN) {
+            client.send(message, (error) => {
+                if (error) clients.delete(client);
+            });
         }
     }
 };

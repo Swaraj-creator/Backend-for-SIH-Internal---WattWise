@@ -1,10 +1,17 @@
 import mongoose from "mongoose";
 
-const Master = new mongoose.Schema({
+const masterSchema = new mongoose.Schema({
     masterId: {
         type: String,
         required: true,
         unique: true,
+        index: true
+    },
+
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
         index: true
     },
 
@@ -23,6 +30,6 @@ const Master = new mongoose.Schema({
         type: Date,
         default: null
     }
-});
+}, { timestamps: true });
 
-export default mongoose.model("Master", Master);
+export default mongoose.model("Master", masterSchema);

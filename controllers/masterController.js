@@ -1,344 +1,66 @@
 import Master from "../models/Master.js";
+import Slave from "../models/Slave.js";
 
-export const createMaster = async (req, res) => {
+const cleanText = (value) => typeof value === "string" ? value.trim() : "";
+const error = (res, status, message) => res.status(status).json({ success: false, message });
+
+export const getMasters = async (req, res, next) => {
     try {
-        const { masterId, name } = req.body;
-
-        if (!masterId || !name) {
-            return res.status(400).json({
-                success: false,
-                message: "masterId and name are required"
-            });
-        }
-
-        const existingMaster = await Master.findOne({ masterId });
-
-        if (existingMaster) {
-            return res.status(409).json({
-                success: false,
-                message: "Master already exists"
-            });
-        }
-
-        const master = await Master.create({
-            masterId,
-            name
-        });
-
-        res.status(201).json({
-            success: true,
-            message: "Master created successfully",
-            data: master
-        });
-
-    } catch (error) {
-        console.error("Error creating master:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to create master"
-        });
-    }
+        const masters = await Master.find({ userId: req.user.userId }).sort({ name: 1 });
+        res.json({ success: true, data: masters });
+    } catch (err) { next(err); }
 };
 
-
-export const getMasters = async (req, res) => {
+export const getMastersByUserId = async (req, res, next) => {
     try {
-        const masters = await Master.find()
-            .sort({ createdAt: -1 });
+        const { userId } = req.params;
+        if (!userId) return error(res, 400, "userId is required");
 
-        res.status(200).json({
-            success: true,
-            data: masters
-        });
-
-    } catch (error) {
-        console.error("Error fetching masters:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch masters"
-        });
-    }
+        const masters = await Master.find({ userId }).sort({ name: 1 });
+        res.json({ success: true, data: masters });
+    } catch (err) { next(err); }
 };
 
-
-export const getMaster = async (req, res) => {
+export const getMaster = async (req, res, next) => {
     try {
-        const { masterId } = req.params;
-        const master = await Master.findOne({ masterId });
-
-        if (!master) {
-            return res.status(404).json({
-                success: false,
-                message: "Master not found"
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            data: master
-        });
-
-    } catch (error) {
-        console.error("Error fetching master:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch master"
-        });
-    }
+        const master = await Master.findOne({ masterId: req.params.masterId, userId: req.user.userId });
+        if (!master) return error(res, 404, "Master not found");
+        const slaves = await Slave.find({ masterId: master.masterId }).sort({ slaveId: 1 });
+        res.json({ success: true, data: { master, slaves } });
+    } catch (err) { next(err); }
 };
 
-
-export const deleteMaster = async (req, res) => {
+export const createMaster = async (req, res, next) => {
     try {
-        const { masterId } = req.params;
-        const master = await Master.findOneAndDelete({ masterId });
+        const masterId = cleanText(req.body.masterId);
+        const name = cleanText(req.body.name);
+        if (!masterId || !name) return error(res, 400, "masterId and name are required");
+        if (await Master.exists({ masterId })) return error(res, 409, "Master already exists");
 
-        if (!master) {
-            return res.status(404).json({
-                success: false,
-                message: "Master not found"
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            message: "Master deleted successfully"
-        });
-
-    } catch (error) {
-        console.error("Error deleting master:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to delete master"
-        });
-    }
+        const master = await Master.create({ masterId, name, userId: req.user.userId });
+        res.status(201).json({ success: true, data: master });
+    } catch (err) { next(err); }
 };
 
-
-
-
-
-// ============================================================
-// WEBSITE → BACKEND
-// PUT /api/masters/config/:masterId
-// ============================================================
-
-export const updateMasterConfig = async (req, res) => {
-
+export const updateMaster = async (req, res, next) => {
     try {
-
-        const { masterId } = req.params;
-
-        const {
-            wifi,
-            espNow,
-            configSyncInterval
-        } = req.body;
-
-
-        const master =
-            await Master.findOne({
-                masterId
-            });
-
-
-        if (!master) {
-
-            return res.status(404).json({
-
-                status: "error",
-
-                message: "Master not found"
-
-            });
-        }
-
-
-        // ----------------------------------------------------
-        // WIFI
-        // ----------------------------------------------------
-
-        if (wifi) {
-
-            master.wifi = {
-
-                ssid:
-                    wifi.ssid ??
-                    master.wifi?.ssid,
-
-                password:
-                    wifi.password ??
-                    master.wifi?.password
-
-            };
-        }
-
-
-        // ----------------------------------------------------
-        // ESPNOW
-        // ----------------------------------------------------
-
-        if (espNow) {
-
-            master.espNow = {
-
-                channel:
-                    espNow.channel ??
-                    master.espNow?.channel,
-
-                slave1MAC:
-                    espNow.slave1MAC ??
-                    master.espNow?.slave1MAC,
-
-                slave2MAC:
-                    espNow.slave2MAC ??
-                    master.espNow?.slave2MAC
-
-            };
-        }
-
-
-        // ----------------------------------------------------
-        // CONFIG SYNC INTERVAL
-        // ----------------------------------------------------
-
-        if (
-            configSyncInterval !== undefined
-        ) {
-
-            master.configSyncInterval =
-                configSyncInterval;
-        }
-
-
-        await master.save();
-
-
-        return res.status(200).json({
-
-            status: "success",
-
-            message:
-                "Master configuration updated",
-
-            masterId:
-                master.masterId
-
-        });
-
-    }
-
-    catch (error) {
-
-        console.error(
-            "Update config error:",
-            error
+        const name = cleanText(req.body.name);
+        if (!name) return error(res, 400, "name is required");
+        const master = await Master.findOneAndUpdate(
+            { masterId: req.params.masterId, userId: req.user.userId },
+            { $set: { name } },
+            { new: true, runValidators: true }
         );
-
-
-        return res.status(500).json({
-
-            status: "error",
-
-            message:
-                "Failed to update configuration"
-
-        });
-    }
+        if (!master) return error(res, 404, "Master not found");
+        res.json({ success: true, data: master });
+    } catch (err) { next(err); }
 };
 
-
-// ============================================================
-// ESP → BACKEND
-// POST /api/masters/config/:masterId
-// ============================================================
-
-export const getMasterConfig = async (req, res) => {
-
+export const deleteMaster = async (req, res, next) => {
     try {
-
-        const { masterId } = req.params;
-
-
-        const master =
-            await Master.findOne({
-                masterId
-            });
-
-
-        // ----------------------------------------------------
-        // MASTER DELETED
-        // ----------------------------------------------------
-
-        if (!master) {
-
-            return res.status(404).json({
-
-                status: "revoked",
-
-                message:
-                    "Master not found"
-
-            });
-        }
-
-
-        // ----------------------------------------------------
-        // RETURN CONFIG
-        // ----------------------------------------------------
-
-        return res.status(200).json({
-
-            status: "active",
-
-            masterId:
-                master.masterId,
-
-            wifi: {
-
-                ssid:
-                    master.wifi?.ssid || "",
-
-                password:
-                    master.wifi?.password || ""
-
-            },
-
-            espNow: {
-
-                channel:
-                    master.espNow?.channel || 11,
-
-                slave1MAC:
-                    master.espNow?.slave1MAC || "",
-
-                slave2MAC:
-                    master.espNow?.slave2MAC || ""
-
-            },
-
-            configSyncInterval:
-                master.configSyncInterval || 60000
-
-        });
-
-    }
-
-    catch (error) {
-
-        console.error(
-            "Get config error:",
-            error
-        );
-
-
-        return res.status(500).json({
-
-            status: "error",
-
-            message:
-                "Failed to retrieve configuration"
-
-        });
-    }
+        const master = await Master.findOneAndDelete({ masterId: req.params.masterId, userId: req.user.userId });
+        if (!master) return error(res, 404, "Master not found");
+        await Slave.deleteMany({ masterId: master.masterId });
+        res.json({ success: true, message: "Master and associated slaves deleted" });
+    } catch (err) { next(err); }
 };

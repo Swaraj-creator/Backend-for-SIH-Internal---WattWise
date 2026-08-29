@@ -3,17 +3,21 @@ import express from "express";
 import {
     createSlave,
     getSlaves,
+    getSlavesByUserId,
     getSlave,
-    getSlavesByMaster,
+    updateSlave,
     deleteSlave
 } from "../controllers/slaveController.js";
+import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
 
-router.post("/", createSlave);
+router.get("/user/:userId", getSlavesByUserId);
+router.use(protect);
 router.get("/", getSlaves);
 router.get("/:slaveId", getSlave);
-router.get("/slavesof/:masterId", getSlavesByMaster);
+router.post("/", createSlave);
+router.put("/:slaveId", updateSlave);
 router.delete("/:slaveId", deleteSlave);
 
 export default router;

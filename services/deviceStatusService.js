@@ -44,7 +44,9 @@ export const checkDeviceStatus = async () => {
 
 export const startDeviceStatusService = () => {
     checkDeviceStatus();
-    setInterval(() => {
+    const interval = setInterval(() => {
         checkDeviceStatus();
     }, 10000);
+    interval.unref?.();
+    return interval;
 };

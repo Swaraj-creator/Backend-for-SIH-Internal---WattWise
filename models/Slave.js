@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const Slave = new mongoose.Schema({
+const slaveSchema = new mongoose.Schema({
     slaveId: {
         type: String,
         required: true,
@@ -35,6 +35,6 @@ const Slave = new mongoose.Schema({
         type: Date,
         default: null
     }
-});
+}, { timestamps: true });
 
-export default mongoose.model("Slave", Slave);
+export default mongoose.model("Slave", slaveSchema);

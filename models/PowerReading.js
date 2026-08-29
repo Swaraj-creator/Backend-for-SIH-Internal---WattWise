@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const PowerReading = new mongoose.Schema({
+const powerReadingSchema = new mongoose.Schema({
     deviceId: {
         type: String,
         required: true,
@@ -15,6 +15,7 @@ const PowerReading = new mongoose.Schema({
 
     appliances: [
         {
+            _id: false,
             applianceId: {
                 type: String,
                 required: true
@@ -44,12 +45,12 @@ const PowerReading = new mongoose.Schema({
 
     timestamp: {
         type: Date,
-        default: Date.now,
+        required: true,
         index: true
     }
 });
 
-PowerReading.index({
+powerReadingSchema.index({
     deviceId: 1,
     slaveId: 1,
     timestamp: 1
@@ -57,4 +58,4 @@ PowerReading.index({
     unique: true
 });
 
-export default mongoose.model("PowerReading", PowerReading);
+export default mongoose.model("PowerReading", powerReadingSchema);

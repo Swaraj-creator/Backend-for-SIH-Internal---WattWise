@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const MotionReading = new mongoose.Schema({
+const motionReadingSchema = new mongoose.Schema({
     deviceId: {
         type: String,
         required: true,
@@ -25,7 +25,7 @@ const MotionReading = new mongoose.Schema({
     }
 });
 
-MotionReading.index({
+motionReadingSchema.index({
     deviceId: 1,
     slaveId: 1,
     timestamp: 1
@@ -33,4 +33,4 @@ MotionReading.index({
     unique: true
 });
 
-export default mongoose.model("MotionReading", MotionReading);
+export default mongoose.model("MotionReading", motionReadingSchema);

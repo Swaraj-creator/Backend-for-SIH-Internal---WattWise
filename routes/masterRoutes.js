@@ -1,19 +1,22 @@
 import express from "express";
-
 import {
-    createMaster,
     getMasters,
+    getMastersByUserId,
     getMaster,
-    deleteMaster,
-    updateMasterConfig
+    createMaster,
+    updateMaster,
+    deleteMaster
 } from "../controllers/masterController.js";
+import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
 
-router.post("/", createMaster);
+router.get("/user/:userId", getMastersByUserId);
+router.use(protect);
 router.get("/", getMasters);
 router.get("/:masterId", getMaster);
+router.post("/", createMaster);
+router.put("/:masterId", updateMaster);
 router.delete("/:masterId", deleteMaster);
-router.post("/config/:masterId", updateMasterConfig);
 
 export default router;

@@ -2,455 +2,128 @@ import Master from "../models/Master.js";
 import Slave from "../models/Slave.js";
 import MotionReading from "../models/MotionReading.js";
 import PowerReading from "../models/PowerReading.js";
-import { broadcastTelemetry } from "../websocket/telemetrySocket.js";
 import { addTelemetryToBuffer } from "../services/telemetryBufferService.js";
+import { broadcastTelemetry } from "../websocket/telemetrySocket.js";
 
-
-export const getTelemetry = async (req, res) => {
-    try {
-        const [motionReadings, powerReadings] = await Promise.all([
-            MotionReading.find()
-                .sort({ timestamp: -1 })
-                .limit(100),
-            PowerReading.find()
-                .sort({ timestamp: -1 })
-                .limit(100)
-        ]);
-
-        res.status(200).json({
-            success: true,
-
-            data: {
-                motion: motionReadings,
-                power: powerReadings
-            }
-        });
-
-    } catch (error) {
-        console.error("Error fetching telemetry:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch telemetry"
-        });
-    }
+const error = (res, status, message) => res.status(status).json({ success: false, message });
+const cleanText = (value) => typeof value === "string" ? value.trim() : "";
+const validDate = (value) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
 };
 
+const validateAppliances = (appliances, slaveId) => {
+    if (!Array.isArray(appliances)) return `appliances must be an array for ${slaveId}`;
+    for (const appliance of appliances) {
+        if (!appliance || !cleanText(appliance.applianceId) || !cleanText(appliance.name)) {
+            return `Every appliance for ${slaveId} needs applianceId and name`;
+        }
+        if (![appliance.voltage, appliance.current, appliance.power].every(Number.isFinite)) {
+            return `Every appliance for ${slaveId} needs finite voltage, current, and power values`;
+        }
+    }
+    return null;
+};
 
-export const postTelemetry = async (req, res) => {
+const validateReadings = async (deviceId, readings) => {
+    const master = await Master.findOne({ masterId: deviceId });
+    if (!master) return { status: 404, message: "Unknown master" };
+
+    const slaveIds = readings.map(({ slaveId }) => cleanText(slaveId)).filter(Boolean);
+    const registered = await Slave.find({ masterId: deviceId, slaveId: { $in: slaveIds } });
+    const slaveMap = new Map(registered.map((slave) => [slave.slaveId, slave]));
+    const motion = [];
+    const power = [];
+
+    for (const reading of readings) {
+        const slaveId = cleanText(reading?.slaveId);
+        if (!slaveId || !["motion", "power"].includes(reading?.type)) {
+            return { status: 400, message: "Every reading needs slaveId and a valid type" };
+        }
+        const registeredSlave = slaveMap.get(slaveId);
+        if (!registeredSlave) return { status: 404, message: `Unknown slave: ${slaveId}` };
+        if (registeredSlave.type !== reading.type) return { status: 400, message: `Slave type mismatch for ${slaveId}` };
+
+        const timestamp = typeof reading.timestamp === "string" && validDate(reading.timestamp);
+        if (!timestamp) return { status: 400, message: `Invalid timestamp for ${slaveId}` };
+
+        if (reading.type === "motion") {
+            if (typeof reading.occupied !== "boolean") return { status: 400, message: `occupied must be a boolean for ${slaveId}` };
+            motion.push({ deviceId, slaveId, occupied: reading.occupied, timestamp });
+        } else {
+            const applianceError = validateAppliances(reading.appliances, slaveId);
+            if (applianceError) return { status: 400, message: applianceError };
+            power.push({
+                deviceId,
+                slaveId,
+                appliances: reading.appliances.map((appliance) => ({
+                    applianceId: cleanText(appliance.applianceId), name: cleanText(appliance.name),
+                    voltage: appliance.voltage, current: appliance.current, power: appliance.power
+                })),
+                timestamp
+            });
+        }
+    }
+    return { master, motion, power, slaveIds: [...new Set(slaveIds)] };
+};
+
+const markDevicesOnline = async (master, slaveIds) => {
+    const now = new Date();
+    await Promise.all([
+        Master.updateOne({ _id: master._id }, { $set: { status: "online", lastSeen: now } }),
+        Slave.updateMany({ masterId: master.masterId, slaveId: { $in: slaveIds } }, { $set: { status: "online", lastSeen: now } })
+    ]);
+};
+
+export const getTelemetry = async (req, res, next) => {
     try {
-        console.log("Telemetry received:");
-        const { deviceId, slaves } = req.body;
+        const masters = await Master.find({ userId: req.user.userId }).select("masterId");
+        const deviceIds = masters.map(({ masterId }) => masterId);
+        const [motion, power] = await Promise.all([
+            MotionReading.find({ deviceId: { $in: deviceIds } }).sort({ timestamp: -1 }).limit(100),
+            PowerReading.find({ deviceId: { $in: deviceIds } }).sort({ timestamp: -1 }).limit(100)
+        ]);
+        res.json({ success: true, data: { motion, power } });
+    } catch (err) { next(err); }
+};
 
-        // Validate deviceId
-        if (!deviceId) {
-            return res.status(400).json({
-                success: false,
-                message: "deviceId is required"
-            });
-        }
+export const postTelemetry = async (req, res, next) => {
+    try {
+        const deviceId = cleanText(req.body.deviceId);
+        const { slaves } = req.body;
+        if (!deviceId) return error(res, 400, "deviceId is required");
+        if (!Array.isArray(slaves)) return error(res, 400, "slaves must be an array");
 
-        // Validate slaves array
-        if (!Array.isArray(slaves)) {
-            return res.status(400).json({
-                success: false,
-                message: "slaves must be an array"
-            });
-        }
-
-        // Verify Master
-        const master = await Master.findOne({masterId: deviceId});
-
-        if (!master) {
-            return res.status(404).json({
-                success: false,
-                message: `Unknown Master: ${deviceId}`
-            });
-        }
-
-        // Get registered Slaves
-        const slaveIds = slaves.map(slave => slave.slaveId);
-        const registeredSlaves = await Slave.find({slaveId: {$in: slaveIds}});
-
-        // Create quick lookup map
-        const slaveMap = new Map(
-            registeredSlaves.map(slave => [
-                slave.slaveId,
-                slave
-            ])
-        );
-
-        const motionReadings = [];
-        const powerReadings = [];
-
-        // Validate every Slave
-        for (const slave of slaves) {
-            if (!slave.slaveId || !slave.type) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Every slave must contain slaveId and type"
-                });
-            }
-
-            // Check slave exists
-            const registeredSlave = slaveMap.get(slave.slaveId);
-
-            if (!registeredSlave) {
-                return res.status(404).json({
-                    success: false,
-                    message: `Unknown slave: ${slave.slaveId}`
-                });
-            }
-
-            // Check slave belongs to Master
-            if (registeredSlave.masterId !== deviceId) {
-                return res.status(403).json({
-                    success: false,
-                    message: `Slave ${slave.slaveId} does not belong to Master ${deviceId}`
-                });
-            }
-
-            // Check slave type
-            if (registeredSlave.type !== slave.type) {
-                return res.status(400).json({
-                    success: false,
-                    message: `Slave type mismatch for ${slave.slaveId}`
-                });
-            }
-
-            // Validate timestamp
-            if (!slave.timestamp) {
-                return res.status(400).json({
-                    success: false,
-                    message: `timestamp is required for slave ${slave.slaveId}`
-                });
-            }
-
-            const timestamp = new Date(slave.timestamp);
-
-            if (Number.isNaN(timestamp.getTime())) {
-                return res.status(400).json({
-                    success: false,
-                    message: `Invalid timestamp for slave ${slave.slaveId}`
-                });
-            }
-
-            // Motion Slave
-            if (slave.type === "motion") {
-                if (typeof slave.occupied !== "boolean") {
-                    return res.status(400).json({
-                        success: false,
-                        message: `occupied must be a boolean for motion slave ${slave.slaveId}`
-                    });
-                }
-
-                motionReadings.push({
-                    deviceId,
-                    slaveId: slave.slaveId,
-                    occupied: slave.occupied,
-                    timestamp
-                });
-            }
-
-            // Power Slave
-            else if (slave.type === "power") {
-                if (!Array.isArray(slave.appliances)) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `appliances must be an array for power slave ${slave.slaveId}`
-                    });
-                }
-
-                powerReadings.push({
-                    deviceId,
-                    slaveId: slave.slaveId,
-                    appliances: slave.appliances,
-                    timestamp
-                });
-            }
-
-            // Unsupported Slave type
-            else {
-                return res.status(400).json({
-                    success: false,
-                    message: `Unsupported slave type: ${slave.type}`
-                });
-            }
-        }
-
-        // Broadcast live telemetry
-        const telemetry = {
-            deviceId,
-            motion: motionReadings,
-            power: powerReadings
-        };
-
+        const result = await validateReadings(deviceId, slaves);
+        if (result.status) return error(res, result.status, result.message);
+        const telemetry = { deviceId, motion: result.motion, power: result.power };
         broadcastTelemetry(telemetry);
-        await addTelemetryToBuffer(telemetry);
-
-        // Update Master status
-        const now = new Date();
-        master.status = "online";
-        master.lastSeen = now;
-        await master.save();
-
-        // Update Slave status
-        await Slave.updateMany(
-            {
-                slaveId: {
-                    $in: slaveIds
-                },
-                masterId: deviceId
-            },
-            {
-                $set: {
-                    status: "online",
-                    lastSeen: now
-                }
-            }
-        );
-
-        // Response
-        res.status(200).json({
-            success: true,
-            message: "Live telemetry received successfully",
-            data: telemetry
-        });
-
-    } catch (error) {
-        console.error("Error processing telemetry:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to process telemetry",
-            error: error.message
-        });
-    }
+        await Promise.all([addTelemetryToBuffer(telemetry), markDevicesOnline(result.master, result.slaveIds)]);
+        res.json({ success: true, data: telemetry });
+    } catch (err) { next(err); }
 };
 
-
-export const syncTelemetry = async (req, res) => {
+export const syncTelemetry = async (req, res, next) => {
     try {
-        console.log("Sync telemetry received:");
+        const deviceId = cleanText(req.body.deviceId);
+        const { readings } = req.body;
+        if (!deviceId) return error(res, 400, "deviceId is required");
+        if (!Array.isArray(readings)) return error(res, 400, "readings must be an array");
+        if (!readings.length) return res.json({ success: true, data: { synced: 0 } });
 
-        const { deviceId, readings } = req.body;
-
-        // Validate deviceId
-        if (!deviceId) {
-            return res.status(400).json({
-                success: false,
-                message: "deviceId is required"
-            });
-        }
-
-        // Validate readings array
-        if (!Array.isArray(readings)) {
-            return res.status(400).json({
-                success: false,
-                message: "readings must be an array"
-            });
-        }
-
-        if (readings.length === 0) {
-            return res.status(200).json({
-                success: true,
-                message: "No readings to synchronize",
-                synced: 0
-            });
-        }
-
-        // Verify Master
-        const master = await Master.findOne({
-            masterId: deviceId
-        });
-
-        if (!master) {
-            return res.status(404).json({
-                success: false,
-                message: `Unknown Master: ${deviceId}`
-            });
-        }
-
-        // Get registered Slaves
-        const slaveIds = readings.map(reading => reading.slaveId);
-        const registeredSlaves = await Slave.find({slaveId: {$in: slaveIds}});
-
-        // Create quick lookup map
-        const slaveMap = new Map(
-            registeredSlaves.map(slave => [
-                slave.slaveId,
-                slave
-            ])
-        );
-
-        const motionOperations = [];
-        const powerOperations = [];
-
-        // Validate every reading
-        for (const reading of readings) {
-            if (!reading.slaveId || !reading.type) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Every reading must contain slaveId and type"
-                });
-            }
-
-            // Check slave exists
-            const registeredSlave = slaveMap.get(reading.slaveId);
-
-            if (!registeredSlave) {
-                return res.status(404).json({
-                    success: false,
-                    message: `Unknown slave: ${reading.slaveId}`
-                });
-            }
-
-            // Check slave belongs to Master
-            if (registeredSlave.masterId !== deviceId) {
-                return res.status(403).json({
-                    success: false,
-                    message: `Slave ${reading.slaveId} does not belong to Master ${deviceId}`
-                });
-            }
-
-            // Check slave type
-            if (registeredSlave.type !== reading.type) {
-                return res.status(400).json({
-                    success: false,
-                    message: `Slave type mismatch for ${reading.slaveId}`
-                });
-            }
-
-            // Validate timestamp
-            if (!reading.timestamp) {
-                return res.status(400).json({
-                    success: false,
-                    message: `timestamp is required for slave ${reading.slaveId}`
-                });
-            }
-
-            const timestamp = new Date(reading.timestamp);
-
-            if (Number.isNaN(timestamp.getTime())) {
-                return res.status(400).json({
-                    success: false,
-                    message: `Invalid timestamp for slave ${reading.slaveId}`
-                });
-            }
-
-            // Motion Slave
-            if (reading.type === "motion") {
-                if (typeof reading.occupied !== "boolean") {
-                    return res.status(400).json({
-                        success: false,
-                        message: `occupied must be a boolean for ${reading.slaveId}`
-                    });
-                }
-
-                motionOperations.push({
-                    updateOne: {
-                        filter: {
-                            deviceId,
-                            slaveId: reading.slaveId,
-                            timestamp
-                        },
-                        update: {
-                            $set: {
-                                occupied: reading.occupied
-                            }
-                        },
-                        upsert: true
-                    }
-                });
-            }
-
-            // Power Slave
-            else if (reading.type === "power") {
-                if (!Array.isArray(reading.appliances)) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `appliances must be an array for ${reading.slaveId}`
-                    });
-                }
-
-                powerOperations.push({
-                    updateOne: {
-                        filter: {
-                            deviceId,
-                            slaveId: reading.slaveId,
-                            timestamp
-                        },
-                        update: {
-                            $set: {
-                                appliances: reading.appliances
-                            }
-                        },
-                        upsert: true
-                    }
-                });
-            }
-
-            // Unsupported Slave type
-            else {
-                return res.status(400).json({
-                    success: false,
-                    message: `Unsupported slave type: ${reading.type}`
-                });
-            }
-        }
-
-        // Save historical readings
+        const result = await validateReadings(deviceId, readings);
+        if (result.status) return error(res, result.status, result.message);
+        const toOperation = (reading) => ({ updateOne: {
+            filter: { deviceId, slaveId: reading.slaveId, timestamp: reading.timestamp },
+            update: { $set: { ...reading } }, upsert: true
+        } });
         const [motionResult, powerResult] = await Promise.all([
-            motionOperations.length > 0 ? MotionReading.bulkWrite(motionOperations) : null,
-            powerOperations.length > 0 ? PowerReading.bulkWrite(powerOperations) : null
+            result.motion.length ? MotionReading.bulkWrite(result.motion.map(toOperation)) : null,
+            result.power.length ? PowerReading.bulkWrite(result.power.map(toOperation)) : null
         ]);
-
-        // Update Master status
-        const now = new Date();
-
-        master.status = "online";
-        master.lastSeen = now;
-
-        await master.save();
-
-        // Update Slave status
-        await Slave.updateMany(
-            {
-                slaveId: {
-                    $in: slaveIds
-                },
-                masterId: deviceId
-            },
-            {
-                $set: {
-                    status: "online",
-                    lastSeen: now
-                }
-            }
-        );
-
-        // Calculate synced count
-        const motionSynced =
-            (motionResult?.upsertedCount || 0) +
-            (motionResult?.modifiedCount || 0);
-
-        const powerSynced =
-            (powerResult?.upsertedCount || 0) +
-            (powerResult?.modifiedCount || 0);
-
-        const synced = motionSynced + powerSynced;
-
-        // Response
-        res.status(200).json({
-            success: true,
-            message: "Historical telemetry synchronized successfully",
-            synced
-        });
-
-    } catch (error) {
-        console.error("Error synchronizing telemetry:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to synchronize telemetry",
-            error: error.message
-        });
-    }
+        await markDevicesOnline(result.master, result.slaveIds);
+        const synced = (motionResult?.upsertedCount || 0) + (motionResult?.modifiedCount || 0) +
+            (powerResult?.upsertedCount || 0) + (powerResult?.modifiedCount || 0);
+        res.json({ success: true, data: { synced } });
+    } catch (err) { next(err); }
 };
