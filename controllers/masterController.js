@@ -14,7 +14,8 @@ export const getMasters = async (req, res, next) => {
 export const getMastersByUserId = async (req, res, next) => {
     try {
         const { userId } = req.params;
-        const { masterId, name } = req.query;
+        const { masterId } = req.query;
+        const { name } = req.body;
 
         if (!userId) return error(res, 400, "userId is required");
 
