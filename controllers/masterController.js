@@ -64,3 +64,22 @@ export const deleteMaster = async (req, res, next) => {
         res.json({ success: true, message: "Master and associated slaves deleted" });
     } catch (err) { next(err); }
 };
+
+export const registerMasterDevice = async (req, res, next) => {
+    try {
+        const masterId = cleanText(req.body.masterId);
+        const userId = cleanText(req.body.userId);
+        const name = cleanText(req.body.name) || masterId;
+
+        if (!masterId || !userId) {
+            return error(res, 400, "masterId and userId are required");
+        }
+
+        if (await Master.exists({ masterId })) {
+            return error(res, 409, "Master already exists");
+        }
+
+        const master = await Master.create({ masterId, name, userId });
+        res.status(201).json({ success: true, data: master });
+    } catch (err) { next(err); }
+};

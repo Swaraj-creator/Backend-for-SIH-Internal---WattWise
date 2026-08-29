@@ -5,13 +5,15 @@ import {
     getMaster,
     createMaster,
     updateMaster,
-    deleteMaster
+    deleteMaster,
+    registerMasterDevice
 } from "../controllers/masterController.js";
 import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
 
 router.get("/user/:userId", getMastersByUserId);
+router.post("/register", registerMasterDevice);
 router.use(protect);
 router.get("/", getMasters);
 router.get("/:masterId", getMaster);
