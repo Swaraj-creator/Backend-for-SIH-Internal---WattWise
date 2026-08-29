@@ -39,6 +39,17 @@ const powerReadingSchema = new mongoose.Schema({
             power: {
                 type: Number,
                 required: true
+            },
+
+            status: {
+                type: String,
+                enum: ["on", "off"],
+                default: "off"
+            },
+
+            pin: {
+                type: Number,
+                required: true
             }
         }
     ],
