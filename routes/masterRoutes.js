@@ -12,7 +12,7 @@ import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
 
-router.get("/user/:userId", getMastersByUserId);
+router.get("/:userId", getMastersByUserId);
 router.post("/register", registerMasterDevice);
 router.use(protect);
 router.get("/", getMasters);

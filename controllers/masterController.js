@@ -14,11 +14,49 @@ export const getMasters = async (req, res, next) => {
 export const getMastersByUserId = async (req, res, next) => {
     try {
         const { userId } = req.params;
+        const { masterId, name } = req.query;
+
         if (!userId) return error(res, 400, "userId is required");
 
+        if (masterId) {
+            const cleanMasterId = cleanText(masterId);
+
+            const existingMaster = await Master.findOne({
+                masterId: cleanMasterId
+            });
+
+            if (existingMaster) {
+                return res.json({
+                    success: true,
+                    data: existingMaster,
+                    created: false
+                });
+            }
+
+            const cleanName = cleanText(name) || cleanMasterId;
+
+            const master = await Master.create({
+                masterId: cleanMasterId,
+                name: cleanName,
+                userId
+            });
+
+            return res.status(201).json({
+                success: true,
+                data: master,
+                created: true
+            });
+        }
+
         const masters = await Master.find({ userId }).sort({ name: 1 });
-        res.json({ success: true, data: masters });
-    } catch (err) { next(err); }
+
+        res.json({
+            success: true,
+            data: masters
+        });
+    } catch (err) {
+        next(err);
+    }
 };
 
 export const getMaster = async (req, res, next) => {

@@ -7,8 +7,9 @@ const ownedMaster = (masterId, userId) => Master.findOne({ masterId, userId });
 
 export const getSlaves = async (req, res, next) => {
     try {
-        const masters = await Master.find({ userId: req.user.userId }).select("masterId");
+        const masters = await Master.find({ userId: req.params.userId }).select("masterId");
         const slaves = await Slave.find({ masterId: { $in: masters.map(({ masterId }) => masterId) } }).sort({ slaveId: 1 });
+        if (!slaves.length) return error(res, 404, "No slaves found for this user");
         res.json({ success: true, data: slaves });
     } catch (err) { next(err); }
 };
@@ -16,12 +17,66 @@ export const getSlaves = async (req, res, next) => {
 export const getSlavesByUserId = async (req, res, next) => {
     try {
         const { userId } = req.params;
+        const { slaveId, masterId, type, name } = req.query;
+
         if (!userId) return error(res, 400, "userId is required");
 
+        if (slaveId) {
+            const existingSlave = await Slave.findOne({ slaveId: cleanText(slaveId) });
+
+            if (existingSlave) {
+                return res.json({
+                    success: true,
+                    data: existingSlave,
+                    created: false
+                });
+            }
+
+            const cleanMasterId = cleanText(masterId);
+            const cleanName = cleanText(name);
+
+            if (!cleanMasterId || !cleanName || !["motion", "power"].includes(type)) {
+                return error(res, 400, "masterId, a valid type, and name are required to create a slave");
+            }
+
+            const master = await Master.findOne({
+                masterId: cleanMasterId,
+                userId
+            });
+
+            if (!master) return error(res, 404, "Master not found");
+
+            const slave = await Slave.create({
+                slaveId: cleanText(slaveId),
+                masterId: cleanMasterId,
+                type,
+                name: cleanName
+            });
+
+            return res.status(201).json({
+                success: true,
+                data: slave,
+                created: true
+            });
+        }
+
         const masters = await Master.find({ userId }).select("masterId");
-        const slaves = await Slave.find({ masterId: { $in: masters.map(({ masterId }) => masterId) } }).sort({ slaveId: 1 });
-        res.json({ success: true, data: slaves });
-    } catch (err) { next(err); }
+
+        const slaves = await Slave.find({
+            masterId: { $in: masters.map(({ masterId }) => masterId) }
+        }).sort({ slaveId: 1 });
+
+        if (!slaves.length) {
+            return error(res, 404, "No slaves found for this user");
+        }
+
+        res.json({
+            success: true,
+            data: slaves
+        });
+    } catch (err) {
+        next(err);
+    }
 };
 
 export const getSlave = async (req, res, next) => {
