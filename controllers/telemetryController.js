@@ -77,7 +77,10 @@ const markDevicesOnline = async (master, slaveIds) => {
 
 export const getTelemetry = async (req, res, next) => {
     try {
-        const masters = await Master.find({ userId: req.user.userId }).select("masterId");
+        const userId = cleanText(req.query?.userId || req.body?.userId || req.user?.userId);
+        if (!userId) return error(res, 400, "userId is required");
+
+        const masters = await Master.find({ userId }).select("masterId");
         const deviceIds = masters.map(({ masterId }) => masterId);
         const [motion, power] = await Promise.all([
             MotionReading.find({ deviceId: { $in: deviceIds } }).sort({ timestamp: -1 }).limit(100),
