@@ -59,8 +59,7 @@ export const createSlave = async (req, res, next) => {
 export const getSlavesByUserId = async (req, res, next) => {
     try {
         const { userId } = req.params;
-        const { slaveId } = req.query;
-        const { type } = req.body;
+        const { slaveId, type } = req.query;
 
         if (!userId) {
             return error(res, 400, "userId is required");
