@@ -14,7 +14,7 @@ const router = express.Router();
 
 router.get("/:userId", getMastersByUserId);
 router.post("/register", registerMasterDevice);
-router.use(protect);
+// router.use(protect);
 router.get("/", getMasters);
 router.get("/:masterId", getMaster);
 router.post("/", createMaster);

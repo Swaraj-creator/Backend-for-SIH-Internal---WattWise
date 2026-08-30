@@ -2,6 +2,7 @@ import Master from "../models/Master.js";
 import Slave from "../models/Slave.js";
 import MotionReading from "../models/MotionReading.js";
 import PowerReading from "../models/PowerReading.js";
+import Appliance from "../models/Appliance.js";
 import { addTelemetryToBuffer } from "../services/telemetryBufferService.js";
 import { broadcastTelemetry } from "../websocket/telemetrySocket.js";
 
@@ -128,5 +129,82 @@ export const syncTelemetry = async (req, res, next) => {
         const synced = (motionResult?.upsertedCount || 0) + (motionResult?.modifiedCount || 0) +
             (powerResult?.upsertedCount || 0) + (powerResult?.modifiedCount || 0);
         res.json({ success: true, data: { synced } });
+    } catch (err) { next(err); }
+};
+
+export const setStatusSignals = async (req, res, next) => {
+    try {
+        const applianceId = req.params.applianceId || cleanText(req.query?.applianceId);
+        const status = cleanText(req.body?.status || req.query?.status);
+
+        if (!applianceId) {
+            return res.status(400).json({
+                success: false,
+                message: "applianceId is required"
+            });
+        }
+
+        if (!["on", "off"].includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "status must be on or off"
+            });
+        }
+
+        const appliance = await Appliance.findOneAndUpdate(
+            { applianceId },
+            { $set: { status } },
+            { new: true }
+        );
+
+        if (!appliance) {
+            return res.status(404).json({
+                success: false,
+                message: "No such appliance"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Status updated",
+            applianceStatus: {
+                applianceId: appliance.applianceId,
+                status: appliance.status,
+                relayIndex: appliance.relayIndex
+            }
+        });
+    } catch (err) { next(err); }
+};
+
+export const getStatusSignals = async (req, res, next) => {
+    try {
+        const applianceId = req.params.applianceId || cleanText(req.query?.applianceId);
+
+        if (!applianceId) {
+            return res.status(400).json({
+                success: false,
+                message: "applianceId is required"
+            });
+        }
+
+        const appliance = await Appliance.findOne({
+            applianceId
+        });
+
+        if (!appliance) {
+            return res.status(404).json({
+                success: false,
+                message: "No such appliance"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            applianceStatus: {
+                applianceId: appliance.applianceId,
+                status: appliance.status,
+                relayIndex: appliance.relayIndex
+            }
+        });
     } catch (err) { next(err); }
 };
